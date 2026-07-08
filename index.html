@@ -216,7 +216,11 @@ const valueLabelPlugin = {
         const tw = ctx.measureText(label).width;
         const x = point.x, y = point.y - 20;
         const padX = 6, h = 18;
-        const boxX = x - tw/2 - padX, boxY = y - h/2, boxW = tw + padX*2;
+        const area = chart.chartArea;
+        let boxX = x - tw/2 - padX;
+        const boxY = y - h/2, boxW = tw + padX*2;
+        boxX = Math.max(area.left, Math.min(boxX, area.right - boxW));
+        const textX = boxX + boxW/2;
         ctx.fillStyle = '#ffffff';
         ctx.strokeStyle = '#e3e7ec';
         ctx.lineWidth = 1;
@@ -228,7 +232,7 @@ const valueLabelPlugin = {
         ctx.fillStyle = '#1a1e24';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(label, x, y);
+        ctx.fillText(label, textX, y);
         ctx.restore();
       });
     });
@@ -360,7 +364,7 @@ function renderChart(a){
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      layout: { padding: { top: 34 } },
+      layout: { padding: { top: 34, right: 12 } },
       plugins: { legend: { display: false }, tooltip: { enabled: false } },
       scales: {
         y: { ticks: { callback: v => inr(v) }, grid: { color: '#e3e7ec' } },
