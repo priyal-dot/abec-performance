@@ -28,10 +28,6 @@
     font-size:18px; cursor:pointer; color:var(--text); display:flex; align-items:center; justify-content:center;
   }
   .navbtn:hover{background:var(--bg);}
-  #searchBox{
-    padding:8px 12px; border-radius:9px; border:1px solid var(--border); font-size:14px; width:180px;
-    background:#fff; color:var(--text);
-  }
   #empSelect{
     padding:8px 12px; border-radius:9px; border:1px solid var(--border); font-size:14px; background:#fff;
     color:var(--text); max-width:220px;
@@ -101,7 +97,7 @@
     .wrap{padding:14px;}
     .card{padding:14px; border-radius:12px;}
     .topbar h1{font-size:21px;}
-    #searchBox, #empSelect{width:100%; max-width:none;}
+    #empSelect{width:100%; max-width:none;}
     .controls{width:100%;}
     .controls > *{flex:1 1 auto;}
     .navbtn{flex:0 0 auto;}
@@ -118,7 +114,6 @@
     <h1>ABEC<span class="dot">.</span> Performance</h1>
     <div class="controls">
       <button class="navbtn" id="prevBtn" aria-label="Previous employee">‹</button>
-      <input id="searchBox" type="text" placeholder="Search name…" autocomplete="off">
       <select id="empSelect" aria-label="Select employee"></select>
       <button class="navbtn" id="nextBtn" aria-label="Next employee">›</button>
     </div>
@@ -244,7 +239,6 @@ Chart.register(valueLabelPlugin);
 const els = {
   prevBtn: document.getElementById('prevBtn'),
   nextBtn: document.getElementById('nextBtn'),
-  searchBox: document.getElementById('searchBox'),
   empSelect: document.getElementById('empSelect'),
   avatar: document.getElementById('avatar'),
   idName: document.getElementById('idName'),
@@ -258,30 +252,22 @@ const els = {
   chips: Array.from(document.querySelectorAll('.chip')),
 };
 
-let filtered = EMPS.slice();
 let curIdx = 0;
 let currentEmp = null;
 let currentDir = 'down';
 let visibleAccounts = [];
 let chartInstance = null;
 
-function rebuildSelect(preserveName){
-  const q = els.searchBox.value.trim().toLowerCase();
-  filtered = EMPS.filter(e => e.name.toLowerCase().includes(q) || e.full.toLowerCase().includes(q));
-  els.empSelect.innerHTML = filtered.map((e,i) => `<option value="${i}">${e.name}</option>`).join('');
-  if (!filtered.length){
+function populateSelect(){
+  els.empSelect.innerHTML = EMPS.map((e,i) => `<option value="${i}">${e.name}</option>`).join('');
+  if (!EMPS.length){
     curIdx = -1;
     clearAll();
     return;
   }
-  let idx = 0;
-  if (preserveName){
-    const found = filtered.findIndex(e => e.name === preserveName);
-    if (found >= 0) idx = found;
-  }
-  curIdx = idx;
-  els.empSelect.value = String(idx);
-  selectEmployee(filtered[idx]);
+  curIdx = 0;
+  els.empSelect.value = '0';
+  selectEmployee(EMPS[0]);
 }
 
 function clearAll(){
@@ -384,22 +370,21 @@ function renderChart(a){
   });
 }
 
-els.searchBox.addEventListener('input', () => rebuildSelect());
 els.empSelect.addEventListener('change', () => {
   curIdx = parseInt(els.empSelect.value, 10);
-  selectEmployee(filtered[curIdx]);
+  selectEmployee(EMPS[curIdx]);
 });
 els.prevBtn.addEventListener('click', () => {
-  if (!filtered.length) return;
-  curIdx = (curIdx - 1 + filtered.length) % filtered.length;
+  if (!EMPS.length) return;
+  curIdx = (curIdx - 1 + EMPS.length) % EMPS.length;
   els.empSelect.value = String(curIdx);
-  selectEmployee(filtered[curIdx]);
+  selectEmployee(EMPS[curIdx]);
 });
 els.nextBtn.addEventListener('click', () => {
-  if (!filtered.length) return;
-  curIdx = (curIdx + 1) % filtered.length;
+  if (!EMPS.length) return;
+  curIdx = (curIdx + 1) % EMPS.length;
   els.empSelect.value = String(curIdx);
-  selectEmployee(filtered[curIdx]);
+  selectEmployee(EMPS[curIdx]);
 });
 els.chips.forEach(chip => {
   chip.addEventListener('click', () => {
@@ -409,7 +394,7 @@ els.chips.forEach(chip => {
   });
 });
 
-rebuildSelect();
+populateSelect();
 })();
 </script>
 </body>
