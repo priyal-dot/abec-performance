@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: abec-performance
+    runtime: static
+    buildCommand: ""
+    staticPublishPath: .
