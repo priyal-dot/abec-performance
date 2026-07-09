@@ -182,8 +182,8 @@ const DATA = {"years":["2022","2023","2024","2025","2026"],"employees":[{"name":
 const EXCLUDE = ['Jasmeet V','Mohan K','Nikhil D','Digvijay S','Swasti S','Vaishak S','Riamei K','Prapti P','Akshay M'];
 
 const EMPS = DATA.employees.filter(e => e.n_repeat > 0 && !EXCLUDE.includes(e.name));
-const RANK_OF = new Map(DATA.employees.map((e,i) => [e.name, i+1]));
-const N_TOTAL = DATA.employees.length;
+const RANK_OF = new Map(EMPS.map((e,i) => [e.name, i+1]));
+const N_TOTAL = EMPS.length;
 
 function inr(n){
   n = Math.round(n);
