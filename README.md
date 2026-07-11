@@ -1,9 +1,10 @@
-# ABEC Performance
+# ABEC PP Analysis
 
-A static, self-contained dashboard for exhibition-stall salespeople: for each person, it surfaces
-their **repeat accounts** (clients booked in 2+ different years) and compares the **rate charged per
-square metre (SQM)** against the standard rate card — the approved **discounted target** rate and the
-**card (ceiling) rate** — to flag accounts sold below the approved floor. Salary is never displayed.
+A static, self-contained dashboard that audits individual exhibition-stall deals: for each RM, it
+flags every deal closed **below that year's discounted rate** ("PP deal") that was booked **outside
+the show's pre-show risk period** — i.e. has no timing justification for the discount and is worth a
+review. Deals booked inside the risk period get the benefit of the doubt and aren't shown. Salary is
+never displayed.
 
 ## How it works
 
@@ -14,13 +15,16 @@ square metre (SQM)** against the standard rate card — the approved **discounte
      to avoid double-counting with Master.
    - `5 year targets 2022 - 2026.xlsx` — the authoritative list of current employees (`Sheet2`).
    - `Standard_Rates_2022-2026.xlsx` — one sheet per year, giving the Standard Card Rate (ceiling)
-     and Discounted Rate (approved target) per event/city. Bookings are matched to a row by event
-     city (Bangalore / Mumbai [+ Ceramics / ACE Surfaces] / Delhi / Hyderabad); anything else
-     (sponsorships, branding, regional shows) falls back to the `ACE REFLECT` "other cities" rate.
-2. `python build_data.py` reads the four files, aggregates bookings per employee and per repeat
-   client, computes the weighted actual/target/card rate per SQM per year (weighted by stall size),
-   and writes `data.json`.
-3. `data.json` and Chart.js 4.4.1 (`vendor/chart.umd.js`) are embedded inline into `index.html`, so
+     and Discounted Rate per event/city. Bookings are matched to a row by event city (Bangalore /
+     Mumbai [+ Ceramics / ACE Surfaces] / Delhi / Hyderabad); anything else (sponsorships, branding,
+     regional shows) falls back to the shared `ACE REFLECT` rate.
+2. `python build_data.py` reads the four files and, for every individual booking row, checks whether
+   its rate is strictly below that year's discounted rate for its bucket (a PP deal) and whether the
+   booking date falls inside that show's fixed pre-show risk-period window (see the in-app
+   "Methodology" card for the exact month ranges per show — they're hardcoded in `build_data.py` as
+   `RISK_WINDOWS`, since they come from business rules rather than the raw data). Deals outside the
+   window are grouped by employee and client into `data.json`.
+3. `data.json` is embedded inline into `index.html` (no charts in this version, so no Chart.js), so
    the page is fully self-contained and works offline / on mobile with no build step or server.
 
 ## Regenerating the data
@@ -31,7 +35,7 @@ python build_data.py
 ```
 
 Then re-embed the refreshed `data.json` into `index.html` (replace the `const DATA = {...}` literal
-in the second inline `<script>` block with the new file's contents).
+in the inline `<script>` block with the new file's contents).
 
 ## Local preview
 

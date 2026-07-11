@@ -1,5 +1,10 @@
+"""Build data.json for the ABEC PP Analysis dashboard from the raw xlsx exports.
 
-"""Build data.json for the ABEC Performance dashboard from the raw xlsx exports."""
+Flags individual deals closed below that year's discounted rate (a "PP deal")
+that fall OUTSIDE the show's pre-show risk period, i.e. have no timing
+justification for the discount.
+"""
+import calendar
 import json
 from datetime import date
 
@@ -24,6 +29,25 @@ BOOKING_ALIASES = {
     "Khusbhoo K": "Khushboo K",
     "Abhishek S": "Abhishek G",
 }
+
+# Pre-show risk period: (start_month, end_month, display_style), applied within
+# the deal's own booking Year. "short" -> "Jul-Sep"; "long" -> "Jul 2024 - Oct 2024".
+RISK_WINDOWS = {
+    "Bangalore": (7, 9, "short"),
+    "Mumbai": (7, 10, "short"),
+    "Mumbai CERAMICS": (7, 10, "short"),
+    "Mumbai ACE SURFACES": (7, 10, "short"),
+    "Delhi": (8, 11, "short"),
+    "Hyderabad": (10, 12, "short"),
+    "Goa": (1, 2, "long"),
+    "Ahmedabad": (1, 2, "long"),
+    "Indore": (4, 6, "long"),
+    "Chennai": (4, 6, "long"),
+    "Raipur": (4, 6, "long"),
+    "Jaipur": (5, 7, "long"),
+    "Coimbatore": (6, 8, "long"),
+}
+RISK_CITY_KEYWORDS = ["Goa", "Ahmedabad", "Indore", "Chennai", "Raipur", "Jaipur", "Coimbatore"]
 
 
 def load_employee_master():
@@ -93,6 +117,36 @@ def classify_bucket(event_city):
     return OTHER_BUCKET
 
 
+def classify_risk_city(event_city):
+    """Which named show (if any) governs this row's risk-period window."""
+    if pd.isna(event_city):
+        return None
+    bucket = classify_bucket(event_city)
+    if bucket in ("Bangalore", "Mumbai", "Mumbai CERAMICS", "Mumbai ACE SURFACES", "Delhi", "Hyderabad"):
+        return bucket
+    c = str(event_city).strip().lower().replace("coimabtore", "coimbatore")
+    for name in RISK_CITY_KEYWORDS:
+        if name.lower() in c:
+            return name
+    return None
+
+
+def get_risk_window(risk_city, year):
+    if risk_city not in RISK_WINDOWS:
+        return None
+    start_month, end_month, style = RISK_WINDOWS[risk_city]
+    y = int(year)
+    start = date(y, start_month, 1)
+    end = date(y, end_month, calendar.monthrange(y, end_month)[1])
+    return start, end, style
+
+
+def fmt_window(start, end, style):
+    if style == "short":
+        return f"{start.strftime('%b')}-{end.strftime('%b')}"
+    return f"{start.strftime('%b %Y')} - {end.strftime('%b %Y')}"
+
+
 COLS = [
     "Booking Date",
     "Exhibitor Name (Billing)",
@@ -102,6 +156,7 @@ COLS = [
     "Deal Value",
     "Booked by",
     "Year",
+    "RB/NB",
 ]
 
 
@@ -138,6 +193,20 @@ def client_key(row):
     return "—"
 
 
+def compact_inr(n):
+    sign = "-" if n < 0 else ""
+    a = abs(n)
+    if a >= 1e7:
+        s = f"{a/1e7:.2f}".rstrip("0").rstrip(".") + " Cr"
+    elif a >= 1e5:
+        s = f"{a/1e5:.2f}".rstrip("0").rstrip(".") + " L"
+    elif a >= 1e3:
+        s = f"{a/1e3:.1f}".rstrip("0").rstrip(".") + "k"
+    else:
+        s = f"{round(a):,}"
+    return sign + "₹" + s
+
+
 def build():
     current_employees = load_current_employees()
     rate_card = load_rate_card()
@@ -148,134 +217,135 @@ def build():
     combined["Year"] = combined["Year"].astype(int).astype(str)
     combined["client_key"] = combined.apply(client_key, axis=1)
 
-    # All-time booked revenue per employee (for ranking), across all clients/years.
     all_time_rev = combined.groupby("Booked by")["Deal Value"].sum()
 
-    employees_out = []
-    for short in current_employees:
-        info = current_employees[short]
-        rev = float(all_time_rev.get(short, 0.0))
-        employees_out.append((short, info, rev))
-
-    employees_out.sort(key=lambda e: e[2], reverse=True)
-
     result_employees = []
-    for short, info, _rev in employees_out:
+    for short, info in current_employees.items():
         emp_rows = combined[combined["Booked by"] == short]
 
-        repeat_accounts = []
-        for client, crows in emp_rows.groupby("client_key"):
-            kept = []
-            for year in YEARS:
-                yrows = crows[crows["Year"] == year]
-                if yrows.empty:
-                    continue
-                sqm = float(yrows["Stall Size"].sum())
-                rev_y = float(yrows["Deal Value"].sum())
-                if sqm <= 0:
-                    continue
-                rate = rev_y / sqm
-                if rate <= 0:
-                    continue
-                n = int(yrows["Deal Value"].count())
-
-                year_card = rate_card[year]
-                target_dollar = target_sqm_sum = 0.0
-                card_dollar = card_sqm_sum = 0.0
-                city_rev = {}
-                for _, r in yrows.iterrows():
-                    ssize = r["Stall Size"]
-                    ssize = float(ssize) if pd.notna(ssize) else 0.0
-                    bucket = classify_bucket(r["Event City"])
-                    bucket_info = year_card.get(bucket)
-                    if bucket_info is not None and ssize:
-                        if bucket_info["target"] is not None:
-                            target_dollar += ssize * bucket_info["target"]
-                            target_sqm_sum += ssize
-                        card_dollar += ssize * bucket_info["card"]
-                        card_sqm_sum += ssize
-                    city_raw = str(r["Event City"]).strip() if pd.notna(r["Event City"]) else "—"
-                    deal_val = r["Deal Value"]
-                    deal_val = float(deal_val) if pd.notna(deal_val) else 0.0
-                    city_rev[city_raw] = city_rev.get(city_raw, 0.0) + deal_val
-
-                target = round(target_dollar / target_sqm_sum) if target_sqm_sum > 0 else None
-                card = round(card_dollar / card_sqm_sum) if card_sqm_sum > 0 else None
-                below_target = (rate < target) if target is not None else None
-                cities_sorted = sorted(city_rev.keys(), key=lambda c: -city_rev[c])
-
-                kept.append(
-                    {
-                        "year": year,
-                        "rate": round(rate),
-                        "rev": round(rev_y, 2),
-                        "sqm": round(sqm, 2),
-                        "n": n,
-                        "target": target,
-                        "card": card,
-                        "below_target": below_target,
-                        "cities": cities_sorted,
-                    }
-                )
-
-            if len(kept) < 2:
+        # Deal-level: find every PP deal (rate strictly below that year's
+        # discounted rate) that falls outside its show's risk period.
+        out_deals = []  # each: dict with client + deal fields
+        for _, r in emp_rows.iterrows():
+            ssize = r["Stall Size"]
+            ssize = float(ssize) if pd.notna(ssize) else 0.0
+            deal_val = r["Deal Value"]
+            deal_val = float(deal_val) if pd.notna(deal_val) else 0.0
+            if ssize <= 0:
+                continue
+            rate = deal_val / ssize
+            if rate <= 0:
                 continue
 
-            first_rate = kept[0]["rate"]
-            last_rate = kept[-1]["rate"]
-            drop_pct = round((last_rate - first_rate) / first_rate * 100, 1)
-            vs_target_last = kept[-1]["below_target"]
-            if vs_target_last is True:
-                direction = "down"
-            elif vs_target_last is False:
-                direction = "up"
+            year = r["Year"]
+            bucket = classify_bucket(r["Event City"])
+            bucket_info = rate_card.get(year, {}).get(bucket)
+            if bucket_info is None or bucket_info["target"] is None:
+                continue
+            discounted = bucket_info["target"]
+            if rate >= discounted:
+                continue  # not a PP deal
+
+            booking_date = r["Booking Date"]
+            if pd.isna(booking_date):
+                continue
+            booking_date = booking_date.date()
+
+            risk_city = classify_risk_city(r["Event City"])
+            window = get_risk_window(risk_city, year) if risk_city else None
+            if window is not None:
+                w_start, w_end, style = window
+                if w_start <= booking_date <= w_end:
+                    continue  # inside risk period: benefit of the doubt
+                window_label = fmt_window(w_start, w_end, style)
             else:
-                direction = "flat"
+                window_label = "—"
 
-            below_target_years = sum(1 for k in kept if k["below_target"] is True)
-            years_with_target = sum(1 for k in kept if k["target"] is not None)
-            discounts = [(k["card"] - k["rate"]) / k["card"] * 100 for k in kept if k["card"]]
-            avg_discount_vs_card = round(sum(discounts) / len(discounts), 1) if discounts else None
-
-            repeat_accounts.append(
+            impact = (discounted - rate) * ssize
+            out_deals.append(
                 {
-                    "client": client,
-                    "series": kept,
-                    "first_rate": first_rate,
-                    "last_rate": last_rate,
-                    "drop_pct": drop_pct,
-                    "direction": direction,
-                    "total_rev": round(sum(k["rev"] for k in kept), 2),
-                    "years": len(kept),
-                    "last_target": kept[-1]["target"],
-                    "last_card": kept[-1]["card"],
-                    "vs_target_last": vs_target_last,
-                    "below_target_years": below_target_years,
-                    "years_with_target": years_with_target,
-                    "avg_discount_vs_card": avg_discount_vs_card,
+                    "client": r["client_key"],
+                    "booked": booking_date,
+                    "show": str(r["Event City"]).strip() if pd.notna(r["Event City"]) else "—",
+                    "edition": year,
+                    "rate": round(rate),
+                    "disc_rate": round(discounted),
+                    "gap": round(rate - discounted),
+                    "sqm": round(ssize, 2),
+                    "deal_value": round(deal_val, 2),
+                    "impact": round(impact, 2),
+                    "risk_window": window_label,
+                    "rb_nb": str(r["RB/NB"]).strip() if pd.notna(r["RB/NB"]) else None,
                 }
             )
 
-        direction_rank = {"down": 0, "flat": 1, "up": 2}
-        repeat_accounts.sort(key=lambda a: (direction_rank[a["direction"]], -a["total_rev"]))
+        clients = {}
+        for d in out_deals:
+            clients.setdefault(d["client"], []).append(d)
+
+        flagged_clients = []
+        for client, deals in clients.items():
+            deals.sort(key=lambda d: d["booked"])
+            editions = sorted({d["edition"] for d in deals})
+            rb_count = sum(1 for d in deals if d["rb_nb"] == "RB")
+            nb_count = sum(1 for d in deals if d["rb_nb"] == "NB")
+            rb_nb = "RB" if rb_count >= nb_count and rb_count > 0 else ("NB" if nb_count > 0 else None)
+            total_impact = sum(d["impact"] for d in deals)
+            flagged_clients.append(
+                {
+                    "client": client,
+                    "deals": [
+                        {
+                            "booked": d["booked"].strftime("%d-%b-%y"),
+                            "show": d["show"],
+                            "edition": d["edition"],
+                            "rate": d["rate"],
+                            "disc_rate": d["disc_rate"],
+                            "gap": d["gap"],
+                            "sqm": d["sqm"],
+                            "deal_value": d["deal_value"],
+                            "impact": d["impact"],
+                            "risk_window": d["risk_window"],
+                        }
+                        for d in deals
+                    ],
+                    "n_deals": len(deals),
+                    "total_impact": round(total_impact, 2),
+                    "total_sqm": round(sum(d["sqm"] for d in deals), 2),
+                    "total_deal_value": round(sum(d["deal_value"] for d in deals), 2),
+                    "editions": editions,
+                    "rb_nb": rb_nb,
+                }
+            )
+
+        flagged_clients.sort(key=lambda c: (-c["n_deals"], -c["total_impact"]))
 
         result_employees.append(
-            {
-                "name": short,
-                "full": info["full"],
-                "designation": info["designation"],
-                "location": info["location"],
-                "n_repeat": len(repeat_accounts),
-                "repeat_accounts": repeat_accounts,
-            }
+            (
+                float(all_time_rev.get(short, 0.0)),
+                {
+                    "name": short,
+                    "full": info["full"],
+                    "designation": info["designation"],
+                    "location": info["location"],
+                    "n_flagged": len(flagged_clients),
+                    "total_impact": round(sum(c["total_impact"] for c in flagged_clients), 2),
+                    "flagged_clients": flagged_clients,
+                },
+            )
         )
 
-    return {"years": YEARS, "employees": result_employees}
+    result_employees.sort(key=lambda e: e[0], reverse=True)
+    return {"years": YEARS, "employees": [e[1] for e in result_employees]}
 
 
 if __name__ == "__main__":
     data = build()
     with open("data.json", "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=None, separators=(",", ":"))
-    n_repeat_total = sum(e["n_repeat"] > 0 for e in data["employees"])
-    print(f"Wrote data.json: {len(data['employees'])} employees, {n_repeat_total} with repeat accounts")
+        json.dump(data, f, ensure_ascii=False, indent=None, separators=(",", ":"), default=str)
+    n_flagged_total = sum(e["n_flagged"] > 0 for e in data["employees"])
+    total_impact = sum(e["total_impact"] for e in data["employees"])
+    print(
+        f"Wrote data.json: {len(data['employees'])} employees, "
+        f"{n_flagged_total} with flagged clients, total impact {compact_inr(total_impact)}"
+    )
