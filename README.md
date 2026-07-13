@@ -22,10 +22,15 @@ never displayed.
    its rate is strictly below that year's discounted rate for its bucket (a PP deal) and whether the
    booking date falls inside that show's fixed pre-show risk-period window (see the in-app
    "Methodology" card for the exact month ranges per show — they're hardcoded in `build_data.py` as
-   `RISK_WINDOWS`, since they come from business rules rather than the raw data). Deals outside the
-   window are grouped by employee and client into `data.json`.
-3. `data.json` is embedded inline into `index.html` (no charts in this version, so no Chart.js), so
-   the page is fully self-contained and works offline / on mobile with no build step or server.
+   `RISK_WINDOWS`, since they come from business rules rather than the raw data). Only the 19 RMs in
+   `INCLUDE_RMS` are covered. Deals outside the window are grouped by employee and client into a
+   compact array-based `data.json` (`{"emps": [[name, full, designation, location, total_impact,
+   [[client, client_impact, [[edition, rate, disc_rate, sqm, deal_value, impact], ...]], ...]], ...],
+   "years": {year: [total_impact, deal_count]}}`), keeping the file small since it's inlined.
+3. `data.json` is embedded inline into `index.html` (no charts — the year-by-year bar is plain
+   CSS/HTML — so no Chart.js), so the page is fully self-contained, mobile-first (bottom tab bar
+   between an Overview and a per-RM PP Analysis view with a searchable, paginated accordion list of
+   flagged exhibitors), and works offline with no build step or server.
 
 ## Regenerating the data
 

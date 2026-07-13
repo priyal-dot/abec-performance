@@ -19,6 +19,16 @@ YEARS = ["2022", "2023", "2024", "2025", "2026"]
 JUNE_CUTOFF = pd.Timestamp("2026-06-04")
 OTHER_BUCKET = "ACE REFLECT"
 
+# The 19 front-line RMs this dashboard covers (excludes both the
+# original 10-name EXCLUDE list and 16 more recently-joined employees
+# who aren't part of this cohort).
+INCLUDE_RMS = [
+    "Viraj P", "Gaurav P", "Tanvi A", "Sachin R", "Neha Q", "Prinu M",
+    "Rajat C", "Nikhil T", "Piyush S", "Sebastian D", "Ali S",
+    "Abhishek G", "Aman B", "Pranav M", "Maaz P", "Nildeep J",
+    "Sumit A", "Penny C", "Swapnil H",
+]
+
 # Manual fixes for resolving 5-year-targets employee names to booking short names.
 MANUAL_EMPLOYEE_FIX = {"Abhishek S": "Abhishek G"}
 
@@ -285,67 +295,53 @@ def build():
 
         flagged_clients = []
         for client, deals in clients.items():
-            deals.sort(key=lambda d: d["booked"])
-            editions = sorted({d["edition"] for d in deals})
-            rb_count = sum(1 for d in deals if d["rb_nb"] == "RB")
-            nb_count = sum(1 for d in deals if d["rb_nb"] == "NB")
-            rb_nb = "RB" if rb_count >= nb_count and rb_count > 0 else ("NB" if nb_count > 0 else None)
             total_impact = sum(d["impact"] for d in deals)
             flagged_clients.append(
-                {
-                    "client": client,
-                    "deals": [
-                        {
-                            "booked": d["booked"].strftime("%d-%b-%y"),
-                            "show": d["show"],
-                            "edition": d["edition"],
-                            "rate": d["rate"],
-                            "disc_rate": d["disc_rate"],
-                            "gap": d["gap"],
-                            "sqm": d["sqm"],
-                            "deal_value": d["deal_value"],
-                            "impact": d["impact"],
-                            "risk_window": d["risk_window"],
-                        }
-                        for d in deals
+                (
+                    total_impact,
+                    [
+                        client,
+                        round(total_impact, 2),
+                        [
+                            [d["edition"], d["rate"], d["disc_rate"], d["sqm"], d["deal_value"], d["impact"]]
+                            for d in deals
+                        ],
                     ],
-                    "n_deals": len(deals),
-                    "total_impact": round(total_impact, 2),
-                    "total_sqm": round(sum(d["sqm"] for d in deals), 2),
-                    "total_deal_value": round(sum(d["deal_value"] for d in deals), 2),
-                    "editions": editions,
-                    "rb_nb": rb_nb,
-                }
+                )
             )
 
-        flagged_clients.sort(key=lambda c: (-c["n_deals"], -c["total_impact"]))
+        flagged_clients.sort(key=lambda c: c[0], reverse=True)
 
+        if not flagged_clients:
+            continue
+        if short not in INCLUDE_RMS:
+            continue
+
+        total_impact = sum(c[0] for c in flagged_clients)
         result_employees.append(
             (
-                float(all_time_rev.get(short, 0.0)),
-                {
-                    "name": short,
-                    "full": info["full"],
-                    "designation": info["designation"],
-                    "location": info["location"],
-                    "n_flagged": len(flagged_clients),
-                    "total_impact": round(sum(c["total_impact"] for c in flagged_clients), 2),
-                    "flagged_clients": flagged_clients,
-                },
+                total_impact,
+                [short, info["full"], info["designation"], info["location"], round(total_impact, 2), [c[1] for c in flagged_clients]],
             )
         )
 
     result_employees.sort(key=lambda e: e[0], reverse=True)
-    return {"years": YEARS, "employees": [e[1] for e in result_employees]}
+
+    years_agg = {}
+    for _, emp in result_employees:
+        for client in emp[5]:
+            for deal in client[2]:
+                year, impact = deal[0], deal[5]
+                imp, n = years_agg.get(year, (0.0, 0))
+                years_agg[year] = (imp + impact, n + 1)
+    years_out = {y: [round(imp, 2), n] for y, (imp, n) in sorted(years_agg.items())}
+
+    return {"emps": [e[1] for e in result_employees], "years": years_out}
 
 
 if __name__ == "__main__":
     data = build()
     with open("data.json", "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=None, separators=(",", ":"), default=str)
-    n_flagged_total = sum(e["n_flagged"] > 0 for e in data["employees"])
-    total_impact = sum(e["total_impact"] for e in data["employees"])
-    print(
-        f"Wrote data.json: {len(data['employees'])} employees, "
-        f"{n_flagged_total} with flagged clients, total impact {compact_inr(total_impact)}"
-    )
+    total_impact = sum(e[4] for e in data["emps"])
+    print(f"Wrote data.json: {len(data['emps'])} employees, total impact {compact_inr(total_impact)}")
