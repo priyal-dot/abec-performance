@@ -42,20 +42,27 @@ BOOKING_ALIASES = {
 
 # Pre-show risk period: (start_month, end_month, display_style), applied within
 # the deal's own booking Year. "short" -> "Jul-Sep"; "long" -> "Jul 2024 - Oct 2024".
+
+# (start_month, end_month, display_style, year_offset). year_offset shifts the
+# window's calendar year relative to the deal's own booking-Year label: 0 means
+# same year, 1 means the window falls in the year after the label. Goa and
+# Ahmedabad book from around April of their label year through February of the
+# following year (show ~March of that following year), so their Jan-Feb risk
+# window falls in label_year + 1, unlike every other show here.
 RISK_WINDOWS = {
-    "Bangalore": (7, 9, "short"),
-    "Mumbai": (7, 10, "short"),
-    "Mumbai CERAMICS": (7, 10, "short"),
-    "Mumbai ACE SURFACES": (7, 10, "short"),
-    "Delhi": (8, 11, "short"),
-    "Hyderabad": (10, 12, "short"),
-    "Goa": (1, 2, "long"),
-    "Ahmedabad": (1, 2, "long"),
-    "Indore": (4, 6, "long"),
-    "Chennai": (4, 6, "long"),
-    "Raipur": (4, 6, "long"),
-    "Jaipur": (5, 7, "long"),
-    "Coimbatore": (6, 8, "long"),
+    "Bangalore": (7, 9, "short", 0),
+    "Mumbai": (7, 10, "short", 0),
+    "Mumbai CERAMICS": (7, 10, "short", 0),
+    "Mumbai ACE SURFACES": (7, 10, "short", 0),
+    "Delhi": (8, 11, "short", 0),
+    "Hyderabad": (10, 12, "short", 0),
+    "Goa": (1, 2, "long", 1),
+    "Ahmedabad": (1, 2, "long", 1),
+    "Indore": (4, 6, "long", 0),
+    "Chennai": (4, 6, "long", 0),
+    "Raipur": (4, 6, "long", 0),
+    "Jaipur": (5, 7, "long", 0),
+    "Coimbatore": (6, 8, "long", 0),
 }
 RISK_CITY_KEYWORDS = ["Goa", "Ahmedabad", "Indore", "Chennai", "Raipur", "Jaipur", "Coimbatore"]
 
@@ -144,8 +151,8 @@ def classify_risk_city(event_city):
 def get_risk_window(risk_city, year):
     if risk_city not in RISK_WINDOWS:
         return None
-    start_month, end_month, style = RISK_WINDOWS[risk_city]
-    y = int(year)
+    start_month, end_month, style, year_offset = RISK_WINDOWS[risk_city]
+    y = int(year) + year_offset
     start = date(y, start_month, 1)
     end = date(y, end_month, calendar.monthrange(y, end_month)[1])
     return start, end, style
